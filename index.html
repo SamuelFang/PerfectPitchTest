@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfect Pitch Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+        .button-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px;
+            max-width: 700px;
+            margin: auto;
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        button:hover {
+            opacity: 0.8;
+        }
+        .whole-note {
+            background-color: #3498db;
+        }
+        .whole-note:hover {
+            background-color: #2980b9;
+        }
+        .half-note, .quarter-tone {
+            background-color: #95a5a6;
+        }
+        .half-note:hover, .quarter-tone:hover {
+            background-color: #7f8c8d;
+        }
+        #playNoteButton {
+            padding: 15px 25px;
+            font-size: 18px;
+            background-color: #e67e22;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        #playNoteButton:hover {
+            background-color: #d35400;
+        }
+		#replayNoteButton {
+            padding: 10px 20px;
+            font-size: 14px;
+            background-color: #e67e22;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+		#replayNoteButton:hover {
+            background-color: #d35400;
+        }
+        select {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+		h1 {
+			font-size: 40px;
+		}
+    </style>
+    <script>
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let score = 0;
+        let streak = 0;
+        let incorrectStreak = 0;
+		let correctAttempts = 0;
+		let totalAttempts = 0;
+        let level = 1;
+        let oscillator; // Store oscillator reference
+        let timeoutID;  // Store timeout reference
+		let currentNote = null;  // Store the current note
+		let currentFrequency = null; // Store the current frequency
+		let noteIndex = 0;
+		let lastNote = null;
+		
+        const baseFrequencies = {
+			"C": 261.6256, "C#": 277.1826, "D": 293.6648, "D#": 311.1270, "E": 329.6276, "F": 349.2282,
+			"F#": 369.9944, "G": 391.9954, "G#": 415.3047, "A": 440.0000, "A#": 466.1638, "B": 493.8833
+		};
+		
+		function disableGuessButtons(disable) {
+			let buttons = document.querySelectorAll("button"); 
+			buttons.forEach(button => {
+				if (button.id !== "playNoteButton") { // Ensure play button stays enabled
+					button.disabled = disable;
+				}
+			});
+		}
+
+        function stopNote() {
+            if (oscillator) {
+                oscillator.stop();
+                clearTimeout(timeoutID);  // Clear the timeout
+                oscillator = null;  // Reset oscillator to avoid playing multiple notes
+            }
+        }
+
+        function playNote(frequency) {
+			const gainNode = audioCtx.createGain();
+			
+            if (oscillator) { // If there's already a note playing, stop it first
+                stopNote();
+            }
+            oscillator = audioCtx.createOscillator();
+            oscillator.type = "sine";
+            oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+			
+			gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); // Lower volume (0.2 = 20%)
+
+			// Apply fade-out effect over 1 second
+			gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 2);
+
+			oscillator.connect(gainNode);
+			gainNode.connect(audioCtx.destination);
+
+			oscillator.start();
+			oscillator.stop(audioCtx.currentTime + 2); // Stop after 1 second
+        }
+		
+		function replayLastNote() {
+			playNote(lastNote);
+		}
+
+        function getRandomNote() {
+			if (currentNote !== null) {
+				console.log("Replaying existing note:", currentNote, currentFrequency);
+				playNote(currentFrequency);
+				return;
+			}
+			
+			disableGuessButtons(false);  // Re-enable buttons for new round
+			
+			let notes = [];
+			let availableNotes;
+
+			// Define available notes based on the current level
+			if (level === 1) {
+				availableNotes = ["C", "E", "G"];  // Level 1: Only C, E, G
+			} else if (level === 2) {
+				availableNotes = ["C", "D", "E", "G", "A"];  // Level 2: C, D, E, G, A
+			} else if (level === 3) {
+				availableNotes = ["C", "D", "E", "F", "G", "A", "B"];  // Level 3: White keys (no sharps)
+			} else if (level === 4) {
+				availableNotes = Object.keys(baseFrequencies);  // Level 4: All keys (with sharps)
+			} else if (level === 5) {
+				// Level 5: Full set + Half tones (white keys + sharps)
+				availableNotes = [
+					...Object.keys(baseFrequencies), 
+					...Object.keys(baseFrequencies).map(note => note + " h") // Half tones for all notes (white + sharps)
+				];
+			} else if (level === 6) {
+				// Level 6: Full set + Quarter + Half + Three-quarter tones
+				availableNotes = [
+					...Object.keys(baseFrequencies), 
+					...Object.keys(baseFrequencies).map(note => note + " h"),  // Half tones
+					...Object.keys(baseFrequencies).map(note => note + " q"),  // Quarter tones
+					...Object.keys(baseFrequencies).map(note => note + " 3/4") // Three-quarter tones
+				];
+			}
+
+			// Select a random note from the available notes
+			let randomNote = availableNotes[Math.floor(Math.random() * availableNotes.length)];
+			let currentNoteElem = document.getElementById("currentNote");
+			if (currentNoteElem) {
+				currentNoteElem.value = randomNote;
+			}
+			currentNote = randomNote;  // Store the note
+
+			let frequency;
+
+			// Determine the frequency based on the note type
+			if (randomNote.includes("h")) {
+				// Half tone (1 semitone up)
+				let baseNote = randomNote.replace(" h", "");
+				frequency = baseFrequencies[baseNote] * Math.pow(2, 1/24); 
+			} else if (randomNote.includes("q")) {
+				// Quarter tone (1/4 semitone up)
+				let baseNote = randomNote.replace(" q", "");
+				frequency = baseFrequencies[baseNote] * Math.pow(2, 1/48);
+			} else if (randomNote.includes("3/4")) {
+				// Three-quarter tone (3/4 semitone up)
+				let baseNote = randomNote.replace(" 3/4", "");
+				frequency = baseFrequencies[baseNote] * Math.pow(2, 3/48);
+			} else {
+				// Standard note
+				frequency = baseFrequencies[randomNote];
+			}
+			
+			let octaveShift = Math.floor(Math.random() * 3) - 1; // Random number between -2 and 2
+			frequency *= Math.pow(2, octaveShift);
+			
+			currentFrequency = frequency;  // Store the frequency
+
+			console.log(`Note: ${randomNote}, Frequency: ${frequency}`);
+			playNote(frequency);
+		}
+
+        function checkAnswer(note) {
+            let actual = document.getElementById("currentNote").value;
+            let resultDisplay = document.getElementById("result");
+
+            stopNote(); // Stop the note immediately after checking the answer
+			lastNote = currentFrequency;
+
+            if (note === actual) {
+                streak++;
+                incorrectStreak = 0;  // Reset incorrect streak
+                score++;
+				correctAttempts++;
+                resultDisplay.textContent = `Correct! Well done. The note was: ${actual}`;
+                resultDisplay.style.color = "green";
+				currentNote = null;  // Reset so a new note can be picked next time
+				currentFrequency = null;
+            } else {
+                streak = 0;  // Reset correct streak
+                incorrectStreak++;
+                resultDisplay.textContent = `Incorrect. The correct note was: ${actual}`;
+                resultDisplay.style.color = "red";
+				currentNote = null;  // Reset so a new note can be picked next time
+				currentFrequency = null;
+            }
+
+            updateScore();
+			totalAttempts++;
+			let accuracy = totalAttempts > 0 ? ((correctAttempts / totalAttempts) * 100).toFixed(2) : "100.00";
+			document.getElementById("accuracy").innerText = `Accuracy: ${correctAttempts}/${totalAttempts} (${accuracy}%)`;
+
+            // Level up after 6 correct answers in a row
+            if (streak >= 6) {
+                levelUp();
+            }
+
+            // Decrease level after 3 incorrect answers in a row
+            if (incorrectStreak >= 3) {
+                levelDown(actual);
+            }
+			
+			disableGuessButtons(true);  // Disable buttons after a guess
+        }
+
+        function updateScore() {
+            let scoreElem = document.getElementById("score");
+            let streakElem = document.getElementById("streak");
+            let levelElem = document.getElementById("level");
+
+            if (scoreElem && streakElem && levelElem) {
+                scoreElem.textContent = `Score: ${score}`;
+                streakElem.textContent = `Correct Streak: ${streak}`;
+                levelElem.textContent = `Level: ${level}`;
+            }
+        }
+
+        function levelUp() {
+            if (level < 6) {
+                level++;
+                streak = 0;  // Reset streak after leveling up
+                document.getElementById("levelSelect").value = level;  // Update dropdown to the new level
+                updateButtons();  // Update buttons after leveling up
+                document.getElementById("result").textContent = `Congratulations! You've leveled up to Level ${level}.`;
+            }
+        }
+
+        function levelDown(actual) {
+            if (level > 1) {
+                level--;
+                incorrectStreak = 0;  // Reset incorrect streak
+                document.getElementById("levelSelect").value = level;  // Update dropdown to the new level
+                updateButtons();  // Update buttons after leveling down
+                document.getElementById("result").textContent = `Oops! You've been demoted to Level ${level}. The note was ${actual}.`;
+            }
+        }
+
+        // Function to toggle visibility based on the level
+        function toggleNotes() {
+            let includeHalf = level >= 4;
+            let includeQuarter = level >= 5;
+
+            let halfButtons = document.querySelectorAll(".half-note");
+            let quarterButtons = document.querySelectorAll(".quarter-tone");
+            halfButtons.forEach(button => {
+                button.style.display = includeHalf || includeQuarter ? "inline-block" : "none";
+            });
+            quarterButtons.forEach(button => {
+                button.style.display = includeQuarter ? "inline-block" : "none";
+            });
+        }
+
+        function changeLevel() {
+            let levelSelect = document.getElementById("levelSelect");
+            if (levelSelect) {
+                level = parseInt(levelSelect.value);
+                toggleNotes();
+                updateButtons(); // Update buttons based on the selected level
+            }
+        }
+
+        // Update buttons based on current level
+        function updateButtons() {
+			let buttonsContainer = document.getElementById("buttons");
+			if (!buttonsContainer) return;
+
+			buttonsContainer.innerHTML = ''; // Clear existing buttons
+
+			let availableNotes = [];
+			const baseNotes = Object.keys(baseFrequencies); // ["C", "C#", "D", "D#", ..., "B"]
+
+			// Generate available notes based on level
+			if (level === 1) {
+				availableNotes = ["C", "E", "G"];
+			} else if (level === 2) {
+				availableNotes = ["C", "D", "E", "G", "A"];
+			} else if (level === 3) {
+				availableNotes = ["C", "D", "E", "F", "G", "A", "B"];
+			} else if (level === 4) {
+				availableNotes = baseNotes; // Full set of whole and sharp notes
+			} else if (level === 5) {
+				// Insert half-tones between their respective notes
+				baseNotes.forEach(note => {
+					availableNotes.push(note);
+					availableNotes.push(note + " h");
+				});
+			} else if (level === 6) {
+				// Insert quarter, half, and three-quarter tones between their respective notes
+				baseNotes.forEach(note => {
+					availableNotes.push(note);
+					availableNotes.push(note + " q");
+					availableNotes.push(note + " h");
+					availableNotes.push(note + " 3/4");
+				});
+			}
+
+			// Mapping for black keys to display enharmonic equivalents
+			const blackKeyMap = {
+				"C#": "C#/Db", "D#": "D#/Eb", "F#": "F#/Gb", "G#": "G#/Ab", "A#": "A#/Bb"
+			};
+
+			// Create buttons in the correct order
+			availableNotes.forEach(note => {
+				let btn = document.createElement("button");
+
+				// Display enharmonic equivalent for sharp notes
+				let displayName = blackKeyMap[note] || note;
+				btn.innerText = displayName;
+
+				// Assign CSS classes for styling
+				if (note.includes("q")) {
+					btn.classList.add("quarter-tone");
+				} else if (note.includes("h")) {
+					btn.classList.add("half-note");
+				} else if (note.includes("3/4")) {
+					btn.classList.add("quarter-tone");
+				} else {
+					btn.classList.add("whole-note");
+				}
+
+				// Attach click event to check answer
+				btn.onclick = () => checkAnswer(note);
+
+				buttonsContainer.appendChild(btn);
+			});
+		}
+
+        window.onload = function() {
+            updateButtons();
+            updateScore();
+        };
+    </script>
+</head>
+<body>
+    <h1>Perfect Pitch Test</h1>
+	
+    <button id="playNoteButton" onclick="getRandomNote()">Play Note</button>
+    <br><br>
+
+    <label for="levelSelect">Select Level:</label>
+    <select id="levelSelect" onchange="changeLevel()">
+        <option value="1">Level 1</option>
+        <option value="2">Level 2</option>
+        <option value="3">Level 3</option>
+        <option value="4">Level 4</option>
+        <option value="5">Level 5</option>
+        <option value="6">Level 6</option>
+    </select>
+    
+    <br><br>
+    <div class="button-container" id="buttons"></div>
+
+    <br>
+    <p id="result"></p>
+    <p id="score">Score: 0</p>
+    <p id="streak">Correct Streak: 0</p>
+	<p id="accuracy">Accuracy: 0/0 (100.00%)</p>
+    <p id="level">Level: 1</p>
+
+    <input type="text" id="currentNote" readonly style="visibility: hidden;">
+	<br><br>
+	<button id="replayNoteButton" onclick="replayLastNote()">Replay Last Note</button>
+</body>
+</html>
